@@ -1,7 +1,7 @@
-package database
+package config
 
 import (
-	"calorics/models"
+	"caloricsAPI/models"
 	"log"
 
 	"gorm.io/driver/sqlite"
@@ -10,13 +10,16 @@ import (
 
 var DB *gorm.DB
 
-func Connect() {
-	database, err := gorm.Open(sqlite.Open("calories.db"), &gorm.Config{})
+func ConnectDatabase() {
+	// Open database with specific options
+	database, err := gorm.Open(sqlite.Open("calorics.db"), &gorm.Config{
+		DisableForeignKeyConstraintWhenMigrating: true,
+	})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
-	// Auto Migrate the schemas
+	// Auto Migrate the models (this will only add missing fields/tables)
 	err = database.AutoMigrate(&models.User{}, &models.FoodEntry{})
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)

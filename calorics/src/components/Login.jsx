@@ -19,9 +19,8 @@ function Login() {
 
       if (response.ok) {
         const data = await response.json();
-        // Store the token in localStorage
         localStorage.setItem('token', data.token);
-        navigate('/dashboard'); // Redirect to dashboard after login
+        navigate('/dashboard');
       } else {
         alert('Login failed');
       }
@@ -52,6 +51,24 @@ function Login() {
             required
           />
         </div>
+        <p style={{ textAlign: 'center', marginBottom: '10px' }}>
+          Don't have an account?{' '}
+          <button
+            type="button"
+            onClick={() => navigate('/register')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#0066cc',
+              textDecoration: 'underline',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'inherit'
+            }}
+          >
+            Register here
+          </button>
+        </p>
         <button type="submit">Login</button>
       </form>
     </div>

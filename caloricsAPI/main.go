@@ -1,25 +1,282 @@
 package main
 
 import (
-	"calorics/database"
-	"calorics/handlers"
+	"caloricsAPI/config"
+	"caloricsAPI/middleware"
+	"caloricsAPI/models"
+	"log"
+	"net/http"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
-	// Initialize database
-	database.Connect()
+	router := gin.Default()
 
-	// Create Gin router
-	r := gin.Default()
+	// Configure CORS
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:3000"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowCredentials: true,
+	}))
 
-	// Routes
-	r.POST("/users", handlers.CreateUser)
-	r.GET("/users/:id", handlers.GetUser)
-	r.POST("/users/:id/entries", handlers.CreateFoodEntry)
-	r.GET("/users/:id/entries", handlers.GetUserEntries)
+	// Connect to database
+	config.ConnectDatabase()
 
-	// Run the server
-	r.Run(":8080")
+	// Public routes
+	router.POST("/api/register", register)
+	router.POST("/api/login", login)
+
+	// Protected routes
+	protected := router.Group("/api")
+	protected.Use(middleware.AuthMiddleware())
+	{
+		protected.GET("/user/stats", getUserStats)
+		protected.GET("/user/profile", getProfile)
+		protected.PUT("/user/profile", updateProfile)
+		protected.POST("/food-entries", createFoodEntry)
+		protected.GET("/food-entries", getUserFoodEntries)
+		protected.DELETE("/food-entries/:id", deleteFoodEntry)
+	}
+
+	router.Run(":8080")
+}
+
+func register(c *gin.Context) {
+	var user models.User
+
+	if err := c.ShouldBindJSON(&user); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Hash password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		return
+	}
+	user.Password = string(hashedPassword)
+
+	// Set default values
+	if user.Goal == "" {
+		user.Goal = "maintain"
+	}
+
+	// Create user
+	if err := config.DB.Create(&user).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to create user: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Registration successful"})
+}
+
+func login(c *gin.Context) {
+	var loginReq models.LoginRequest
+	var user models.User
+
+	if err := c.ShouldBindJSON(&loginReq); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Find user by email
+	if err := config.DB.Where("email = ?", loginReq.Email).First(&user).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+
+	// Check password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginReq.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+
+	// Generate token
+	token, err := middleware.GenerateToken(user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.LoginResponse{
+		Token: token,
+		User:  user,
+	})
+}
+
+func getUserStats(c *gin.Context) {
+	userID := c.GetUint("user_id")
+
+	var user models.User
+	// Get today's food entries
+	today := time.Now().Format("2006-01-02")
+	if err := config.DB.Preload("FoodEntries", "date = ?", today).First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Add debug logging
+	log.Printf("User data before calculation - Height: %d, Neck: %d, Waist: %d",
+		user.Height, user.NeckMeasure, user.WaistMeasure)
+
+	// Calculate fat percentage
+	fatPercentage := user.CalculateFatPercentage()
+	log.Printf("Calculated fat percentage: %d", fatPercentage)
+
+	// Get stats
+	stats := user.GetStats()
+
+	// Ensure fat percentage is included in stats
+	stats.FatPercentage = fatPercentage
+
+	// Log the stats for debugging
+	log.Printf("User stats: %+v", stats)
+
+	c.JSON(http.StatusOK, stats)
+}
+
+func getProfile(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var user models.User
+
+	if err := config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Calculate fat percentage before sending response
+	user.CalculateFatPercentage()
+
+	// Create a response without sensitive information
+	profile := gin.H{
+		"name":          user.Name,
+		"email":         user.Email,
+		"gender":        user.Gender,
+		"birthday":      user.Birthday,
+		"weight":        user.Weight,
+		"height":        user.Height,
+		"neckMeasure":   user.NeckMeasure,
+		"waistMeasure":  user.WaistMeasure,
+		"fatPercentage": user.FatPercentage,
+		"goal":          user.Goal,
+	}
+
+	// Log the profile for debugging
+	log.Printf("User profile: %+v", profile)
+
+	c.JSON(http.StatusOK, profile)
+}
+
+func updateProfile(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var user models.User
+	var updateData struct {
+		CurrentWeight    int    `json:"currentWeight"`
+		Height           int    `json:"height"`
+		NeckMeasurement  int    `json:"neckMeasurement"`
+		WaistMeasurement int    `json:"waistMeasurement"`
+		Goal             string `json:"goal" binding:"omitempty,oneof=lose maintain gain"`
+	}
+
+	if err := config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	if err := c.ShouldBindJSON(&updateData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update user data
+	user.Weight = updateData.CurrentWeight
+	user.Height = updateData.Height
+	user.NeckMeasure = updateData.NeckMeasurement
+	user.WaistMeasure = updateData.WaistMeasurement
+	if updateData.Goal != "" {
+		user.Goal = updateData.Goal
+	}
+
+	// Calculate fat percentage and needed calories
+	user.CalculateFatPercentage()
+	neededCalories := user.CalculateNeededCalories()
+
+	if err := config.DB.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+		return
+	}
+
+	// Return updated profile including fat percentage, goal, and needed calories
+	c.JSON(http.StatusOK, gin.H{
+		"message":        "Profile updated successfully",
+		"fatPercentage":  user.FatPercentage,
+		"goal":           user.Goal,
+		"neededCalories": neededCalories,
+	})
+}
+
+func createFoodEntry(c *gin.Context) {
+	var foodEntry models.FoodEntry
+	if err := c.ShouldBindJSON(&foodEntry); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	foodEntry.UserID = userID
+
+	// Load the food data
+	if err := config.DB.First(&foodEntry.Food, foodEntry.FoodID).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid food ID"})
+		return
+	}
+
+	if err := config.DB.Create(&foodEntry).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create food entry"})
+		return
+	}
+
+	c.JSON(http.StatusOK, foodEntry)
+}
+
+func getUserFoodEntries(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	date := c.Query("date") // Optional date filter
+
+	query := config.DB.Preload("Food").Where("user_id = ?", userID)
+	if date != "" {
+		query = query.Where("date = ?", date)
+	}
+
+	var entries []models.FoodEntry
+	if err := query.Find(&entries).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch food entries"})
+		return
+	}
+
+	c.JSON(http.StatusOK, entries)
+}
+
+func deleteFoodEntry(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	entryID := c.Param("id")
+
+	var entry models.FoodEntry
+	if err := config.DB.Where("id = ? AND user_id = ?", entryID, userID).First(&entry).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Food entry not found"})
+		return
+	}
+
+	if err := config.DB.Delete(&entry).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete food entry"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Food entry deleted successfully"})
 }

@@ -4,10 +4,12 @@ import { useNavigate } from 'react-router-dom';
 function Dashboard() {
   const [userStats, setUserStats] = useState({
     dailyCalories: 0,
-    neededCalories: 2000, // This should be calculated based on user's data
+    neededCalories: 2000,
     currentWeight: 0,
     neckMeasurement: 0,
-    waistMeasurement: 0
+    waistMeasurement: 0,
+    fatPercentage: 0,
+    goal: 'maintain'
   });
 
   const [isLoading, setIsLoading] = useState(true);
@@ -29,9 +31,9 @@ function Dashboard() {
       
       if (response.ok) {
         const data = await response.json();
+        console.log('Raw stats data:', data);
         setUserStats(data);
       } else {
-        // Handle unauthorized access
         navigate('/login');
       }
     } catch (error) {
@@ -43,6 +45,17 @@ function Dashboard() {
 
   const handleFoodRegister = () => {
     navigate('/food-register');
+  };
+
+  const getGoalText = (goal) => {
+    switch(goal) {
+      case 'lose':
+        return 'Lose Weight';
+      case 'gain':
+        return 'Gain Weight';
+      default:
+        return 'Maintain Weight';
+    }
   };
 
   if (isLoading) {
@@ -95,6 +108,16 @@ function Dashboard() {
           <h3>Waist</h3>
           <p>{userStats.waistMeasurement} cm</p>
         </div>
+        <div className="stats-card">
+          <h3>Body Fat</h3>
+          <p>{userStats.fatPercentage !== undefined && userStats.fatPercentage !== null 
+              ? `${userStats.fatPercentage}%` 
+              : 'Not calculated'}</p>
+        </div>
+        <div className="stats-card">
+          <h3>Goal</h3>
+          <p>{getGoalText(userStats.goal)}</p>
+        </div>
       </div>
 
       {/* Food Register Button */}
@@ -103,6 +126,16 @@ function Dashboard() {
         onClick={handleFoodRegister}
       >
         Register Food
+      </button>
+
+      <button 
+        className="logout-btn" 
+        onClick={() => {
+          localStorage.removeItem('token');
+          navigate('/login');
+        }}
+      >
+        Logout
       </button>
     </div>
   );

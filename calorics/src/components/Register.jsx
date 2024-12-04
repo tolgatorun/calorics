@@ -91,8 +91,6 @@ function Register() {
             <option value="">Select Gender</option>
             <option value="male">Male</option>
             <option value="female">Female</option>
-            <option value="other">Other</option>
-            <option value="prefer_not_to_say">Prefer not to say</option>
           </select>
         </div>
         <div>
@@ -107,6 +105,24 @@ function Register() {
             required
           />
         </div>
+        <p style={{ textAlign: 'center', marginBottom: '10px' }}>
+          Already have an account?{' '}
+          <button
+            type="button"
+            onClick={() => navigate('/login')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#0066cc',
+              textDecoration: 'underline',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'inherit'
+            }}
+          >
+            Login here
+          </button>
+        </p>
         <button type="submit">Register</button>
       </form>
     </div>

@@ -5,11 +5,14 @@ function Profile() {
   const [profile, setProfile] = useState({
     name: '',
     email: '',
-    currentWeight: '',
-    neckMeasurement: '',
-    waistMeasurement: '',
+    weight: '',
+    height: '',
+    neckMeasure: '',
+    waistMeasure: '',
     gender: '',
-    birthday: ''
+    birthday: '',
+    fatPercentage: '',
+    goal: 'maintain'
   });
 
   const [isLoading, setIsLoading] = useState(true);
@@ -32,6 +35,8 @@ function Profile() {
       if (response.ok) {
         const data = await response.json();
         setProfile(data);
+      } else {
+        navigate('/login');
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -51,24 +56,43 @@ function Profile() {
     e.preventDefault();
     try {
       const token = localStorage.getItem('token');
+      const updateData = {
+        currentWeight: parseInt(profile.weight),
+        height: parseInt(profile.height),
+        neckMeasurement: parseInt(profile.neckMeasure),
+        waistMeasurement: parseInt(profile.waistMeasure),
+        goal: profile.goal
+      };
+
       const response = await fetch('http://localhost:8080/api/user/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(profile)
+        body: JSON.stringify(updateData)
       });
 
       if (response.ok) {
+        const data = await response.json();
         setMessage('Profile updated successfully!');
+        setProfile(prev => ({
+          ...prev,
+          fatPercentage: data.fatPercentage
+        }));
       } else {
-        setMessage('Failed to update profile');
+        const error = await response.json();
+        setMessage('Failed to update profile: ' + error.error);
       }
     } catch (error) {
       console.error('Error updating profile:', error);
       setMessage('Error updating profile');
     }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    navigate('/login');
   };
 
   const handleBackToDashboard = () => {
@@ -97,8 +121,7 @@ function Profile() {
             type="text"
             name="name"
             value={profile.name}
-            onChange={handleChange}
-            disabled  // Name can't be changed
+            disabled
           />
         </div>
 
@@ -108,8 +131,30 @@ function Profile() {
             type="email"
             name="email"
             value={profile.email}
+            disabled
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Weight Goal:</label>
+          <select
+            name="goal"
+            value={profile.goal}
             onChange={handleChange}
-            disabled  // Email can't be changed
+            required
+          >
+            <option value="maintain">Maintain Weight</option>
+            <option value="lose">Lose Weight</option>
+            <option value="gain">Gain Weight</option>
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label>Body Fat Percentage:</label>
+          <input
+            type="text"
+            value={profile.fatPercentage ? `${profile.fatPercentage}%` : 'Not calculated yet'}
+            disabled
           />
         </div>
 
@@ -117,9 +162,19 @@ function Profile() {
           <label>Current Weight (kg):</label>
           <input
             type="number"
-            step="0.1"
-            name="currentWeight"
-            value={profile.currentWeight}
+            name="weight"
+            value={profile.weight}
+            onChange={handleChange}
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Height (cm):</label>
+          <input
+            type="number"
+            name="height"
+            value={profile.height}
             onChange={handleChange}
             required
           />
@@ -129,9 +184,8 @@ function Profile() {
           <label>Neck Measurement (cm):</label>
           <input
             type="number"
-            step="0.1"
-            name="neckMeasurement"
-            value={profile.neckMeasurement}
+            name="neckMeasure"
+            value={profile.neckMeasure}
             onChange={handleChange}
             required
           />
@@ -141,9 +195,8 @@ function Profile() {
           <label>Waist Measurement (cm):</label>
           <input
             type="number"
-            step="0.1"
-            name="waistMeasurement"
-            value={profile.waistMeasurement}
+            name="waistMeasure"
+            value={profile.waistMeasure}
             onChange={handleChange}
             required
           />
@@ -153,6 +206,13 @@ function Profile() {
           Update Profile
         </button>
       </form>
+
+      <button 
+        className="logout-btn" 
+        onClick={handleLogout}
+      >
+        Logout
+      </button>
     </div>
   );
 }

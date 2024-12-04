@@ -1,19 +1,180 @@
 package models
 
 import (
+	"log"
+	"math"
+	"time"
+
 	"gorm.io/gorm"
-	// "time"
 )
 
 type User struct {
 	gorm.Model
-	Name     string      `json:"name"`
-	Email    string      `json:"email" gorm:"unique"`
-	Password string      `json:"password"`
-	Weight   float64     `json:"weight"` // in kg
-	Height   float64     `json:"height"` // in cm
-	Age      int         `json:"age"`
-	Neck     float64     `json:"neck"`  // in cm
-	Waist    float64     `json:"waist"` // in cm
-	Entries  []FoodEntry `json:"entries" gorm:"foreignKey:UserID"`
+	Name          string      `json:"name" binding:"required"`
+	Email         string      `json:"email" binding:"required,email" gorm:"unique"`
+	Password      string      `json:"password" binding:"required"`
+	Gender        string      `json:"gender" binding:"required,oneof=male female"`
+	Birthday      string      `json:"birthday" binding:"required"`
+	Weight        int         `json:"weight,omitempty"`
+	Height        int         `json:"height,omitempty"`
+	Age           int         `json:"-"`
+	WaistMeasure  int         `json:"waist_measure,omitempty"`
+	NeckMeasure   int         `json:"neck_measure,omitempty"`
+	FatPercentage int         `json:"fat_percentage,omitempty" gorm:"->"`
+	Goal          string      `json:"goal" gorm:"default:'maintain'" binding:"omitempty,oneof=lose maintain gain"`
+	FoodEntries   []FoodEntry `json:"food_entries,omitempty" gorm:"foreignKey:UserID"`
+}
+
+type UserStats struct {
+	DailyCalories    float64 `json:"dailyCalories"`
+	NeededCalories   int     `json:"neededCalories"`
+	CurrentWeight    int     `json:"currentWeight"`
+	NeckMeasurement  int     `json:"neckMeasurement"`
+	WaistMeasurement int     `json:"waistMeasurement"`
+	FatPercentage    int     `json:"fatPercentage"`
+	Goal             string  `json:"goal"`
+}
+
+type LoginRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+type LoginResponse struct {
+	Token string `json:"token"`
+	User  User   `json:"user"`
+}
+
+func (u *User) CalculateFatPercentage() int {
+	if u.WaistMeasure == 0 || u.NeckMeasure == 0 || u.Height == 0 {
+		u.FatPercentage = 0
+		return 0
+	}
+
+	waistNeck := float64(u.WaistMeasure - u.NeckMeasure)
+	height := float64(u.Height)
+
+	if waistNeck <= 0 {
+		u.FatPercentage = 0
+		return 0
+	}
+
+	var result float64
+	if u.Gender == "male" {
+		result = 495/(1.0324-0.19077*math.Log10(waistNeck)+0.15456*math.Log10(height)) - 450
+	} else {
+		// Formula for females
+		result = 495/(1.29579-0.35004*math.Log10(waistNeck)+0.22100*math.Log10(height)) - 450
+	}
+
+	// Ensure the result is within reasonable bounds (5-50%)
+	if result < 5 {
+		result = 5
+	} else if result > 50 {
+		result = 50
+	}
+
+	// Log the calculation details
+	log.Printf("Fat percentage calculation: Gender=%s, Height=%d, Waist=%d, Neck=%d, Result=%f",
+		u.Gender, u.Height, u.WaistMeasure, u.NeckMeasure, result)
+
+	fatPercentage := int(math.Round(result))
+	u.FatPercentage = fatPercentage
+	return fatPercentage
+}
+
+func (u *User) CalculateNeededCalories() int {
+	// Calculate Lean Body Mass (LBM)
+	bodyFatDecimal := float64(u.FatPercentage) / 100
+	lbm := float64(u.Weight) * (1 - bodyFatDecimal)
+
+	// Basal Metabolic Rate (BMR) using Katch-McArdle formula
+	bmr := 370 + (21.6 * lbm)
+
+	// Activity multiplier (using moderate activity by default)
+	activityMultiplier := 1.55
+	tdee := bmr * activityMultiplier
+
+	// Adjust based on goal
+	switch u.Goal {
+	case "lose":
+		return int(tdee - 500) // 500 calorie deficit for weight loss
+	case "gain":
+		return int(tdee + 500) // 500 calorie surplus for weight gain
+	default:
+		return int(tdee) // maintain weight
+	}
+}
+
+func (u *User) GetStats() UserStats {
+	// Calculate daily calories consumed
+	var dailyCalories float64
+	today := time.Now().Format("2006-01-02")
+	for _, entry := range u.FoodEntries {
+		if entry.Date == today {
+			dailyCalories += entry.Calories
+		}
+	}
+
+	// Ensure fat percentage is calculated
+	u.CalculateFatPercentage()
+
+	stats := UserStats{
+		DailyCalories:    dailyCalories,
+		NeededCalories:   u.CalculateNeededCalories(),
+		CurrentWeight:    u.Weight,
+		NeckMeasurement:  u.NeckMeasure,
+		WaistMeasurement: u.WaistMeasure,
+		FatPercentage:    u.FatPercentage,
+		Goal:             u.Goal,
+	}
+
+	// Log the stats
+	log.Printf("Generated stats: %+v", stats)
+
+	return stats
+}
+
+func (u *User) BeforeCreate(tx *gorm.DB) error {
+	if u.Goal == "" {
+		u.Goal = "maintain"
+	}
+	u.FatPercentage = u.CalculateFatPercentage()
+	return nil
+}
+
+func (u *User) BeforeUpdate(tx *gorm.DB) error {
+	u.FatPercentage = u.CalculateFatPercentage()
+	return nil
+}
+
+type Food struct {
+	gorm.Model
+	Name          string  `json:"name" binding:"required"`
+	Calories      int     `json:"calories" binding:"required"`
+	Protein       float64 `json:"protein"`
+	Carbohydrates float64 `json:"carbohydrates"`
+	Fat           float64 `json:"fat"`
+	ServingSize   int     `json:"serving_size" binding:"required"` // in grams
+}
+
+type FoodEntry struct {
+	gorm.Model
+	UserID   uint    `json:"user_id"`
+	FoodID   uint    `json:"food_id"`
+	Food     Food    `json:"food" gorm:"foreignKey:FoodID"`
+	Quantity int     `json:"quantity" binding:"required"` // in grams
+	Date     string  `json:"date" binding:"required"`
+	Calories float64 `json:"calories"`
+}
+
+// Calculate calories for food entry based on quantity and food data
+func (fe *FoodEntry) CalculateCalories() {
+	caloriesPer100g := float64(fe.Food.Calories)
+	fe.Calories = (caloriesPer100g * float64(fe.Quantity)) / float64(fe.Food.ServingSize)
+}
+
+func (fe *FoodEntry) BeforeCreate(tx *gorm.DB) error {
+	fe.CalculateCalories()
+	return nil
 }
