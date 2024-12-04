@@ -13,6 +13,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Add this new struct for direct food entry
+type DirectFoodEntry struct {
+	Name     string `json:"name" binding:"required"`
+	Calories int    `json:"calories" binding:"required"`
+	Quantity int    `json:"quantity" binding:"required"`
+	Date     string `json:"date" binding:"required"`
+}
+
 func main() {
 	router := gin.Default()
 
@@ -41,6 +49,7 @@ func main() {
 		protected.POST("/food-entries", createFoodEntry)
 		protected.GET("/food-entries", getUserFoodEntries)
 		protected.DELETE("/food-entries/:id", deleteFoodEntry)
+		protected.POST("/food-entries/direct", createDirectFoodEntry)
 	}
 
 	router.Run(":8080")
@@ -121,22 +130,30 @@ func getUserStats(c *gin.Context) {
 		return
 	}
 
-	// Add debug logging
-	log.Printf("User data before calculation - Height: %d, Neck: %d, Waist: %d",
-		user.Height, user.NeckMeasure, user.WaistMeasure)
-
 	// Calculate fat percentage
 	fatPercentage := user.CalculateFatPercentage()
-	log.Printf("Calculated fat percentage: %d", fatPercentage)
 
-	// Get stats
-	stats := user.GetStats()
+	// Calculate daily calories
+	var dailyCalories float64
+	for _, entry := range user.FoodEntries {
+		if entry.Date == today {
+			dailyCalories += entry.Calories
+		}
+	}
 
-	// Ensure fat percentage is included in stats
-	stats.FatPercentage = fatPercentage
+	// Get needed calories
+	neededCalories := user.CalculateNeededCalories()
 
-	// Log the stats for debugging
-	log.Printf("User stats: %+v", stats)
+	// Create stats response
+	stats := models.UserStats{
+		DailyCalories:    dailyCalories,
+		NeededCalories:   neededCalories,
+		CurrentWeight:    user.Weight,
+		NeckMeasurement:  user.NeckMeasure,
+		WaistMeasurement: user.WaistMeasure,
+		FatPercentage:    fatPercentage,
+		Goal:             user.Goal,
+	}
 
 	c.JSON(http.StatusOK, stats)
 }
@@ -279,4 +296,46 @@ func deleteFoodEntry(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Food entry deleted successfully"})
+}
+
+func createDirectFoodEntry(c *gin.Context) {
+	var directEntry DirectFoodEntry
+	if err := c.ShouldBindJSON(&directEntry); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.GetUint("user_id")
+
+	// Create the food
+	food := models.Food{
+		Name:        directEntry.Name,
+		Calories:    directEntry.Calories,
+		ServingSize: 100, // Default serving size of 100g
+	}
+
+	if err := config.DB.Create(&food).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create food"})
+		return
+	}
+
+	// Calculate calories based on quantity
+	caloriesForQuantity := float64(directEntry.Calories) * float64(directEntry.Quantity) / 100.0
+
+	// Create the food entry
+	foodEntry := models.FoodEntry{
+		UserID:   userID,
+		FoodID:   food.ID,
+		Food:     food,
+		Quantity: directEntry.Quantity,
+		Date:     directEntry.Date,
+		Calories: caloriesForQuantity,
+	}
+
+	if err := config.DB.Create(&foodEntry).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create food entry"})
+		return
+	}
+
+	c.JSON(http.StatusOK, foodEntry)
 }

@@ -3,6 +3,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import Profile from './components/Profile';
+import FoodRegister from './components/FoodRegister';
 import './App.css';
 import './styles/auth.css';
 import './styles/dashboard.css';
@@ -20,14 +21,20 @@ function App() {
         <Route 
           path="/dashboard" 
           element={
-            isAuthenticated() ? <Dashboard /> : <Dashboard />//<Navigate to="/login" />
+            isAuthenticated() ? <Dashboard /> : <Navigate to="/login" />
           } 
         />
         <Route path="/" element={<Navigate to="/dashboard" />} />
         <Route 
           path="/profile" 
           element={
-            isAuthenticated() ? <Profile /> : <Profile />//<Navigate to="/login" />
+            isAuthenticated() ? <Profile /> : <Navigate to="/login" />
+          } 
+        />
+        <Route 
+          path="/food-register" 
+          element={
+            isAuthenticated() ? <FoodRegister /> : <Navigate to="/login" />
           } 
         />
       </Routes>
