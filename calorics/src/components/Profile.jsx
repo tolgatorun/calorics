@@ -9,6 +9,7 @@ function Profile() {
     height: '',
     neckMeasure: '',
     waistMeasure: '',
+    hipMeasure: '',
     gender: '',
     birthday: '',
     fatPercentage: '',
@@ -61,6 +62,7 @@ function Profile() {
         height: parseInt(profile.height),
         neckMeasurement: parseInt(profile.neckMeasure),
         waistMeasurement: parseInt(profile.waistMeasure),
+        hipMeasurement: profile.gender === 'female' ? parseInt(profile.hipMeasure) : undefined,
         goal: profile.goal
       };
 
@@ -201,6 +203,19 @@ function Profile() {
             required
           />
         </div>
+
+        {profile.gender === 'female' && (
+          <div className="form-group">
+            <label>Hip Measurement (cm):</label>
+            <input
+              type="number"
+              name="hipMeasure"
+              value={profile.hipMeasure}
+              onChange={handleChange}
+              required
+            />
+          </div>
+        )}
 
         <button type="submit" className="update-btn">
           Update Profile

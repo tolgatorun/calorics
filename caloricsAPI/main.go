@@ -132,7 +132,7 @@ func getUserStats(c *gin.Context) {
 
 	// Calculate fat percentage
 	fatPercentage := user.CalculateFatPercentage()
-
+	age := user.CalculateAge()
 	// Calculate daily calories
 	var dailyCalories float64
 	for _, entry := range user.FoodEntries {
@@ -153,6 +153,7 @@ func getUserStats(c *gin.Context) {
 		WaistMeasurement: user.WaistMeasure,
 		FatPercentage:    fatPercentage,
 		Goal:             user.Goal,
+		Age:              age,
 	}
 
 	c.JSON(http.StatusOK, stats)
@@ -167,7 +168,8 @@ func getProfile(c *gin.Context) {
 		return
 	}
 
-	// Calculate fat percentage before sending response
+	// Calculate age and fat percentage before sending response
+	user.CalculateAge()
 	user.CalculateFatPercentage()
 
 	// Create a response without sensitive information
@@ -176,10 +178,12 @@ func getProfile(c *gin.Context) {
 		"email":         user.Email,
 		"gender":        user.Gender,
 		"birthday":      user.Birthday,
+		"age":           user.Age,
 		"weight":        user.Weight,
 		"height":        user.Height,
 		"neckMeasure":   user.NeckMeasure,
 		"waistMeasure":  user.WaistMeasure,
+		"hipMeasure":    user.HipMeasure,
 		"fatPercentage": user.FatPercentage,
 		"goal":          user.Goal,
 	}
@@ -198,6 +202,7 @@ func updateProfile(c *gin.Context) {
 		Height           int    `json:"height"`
 		NeckMeasurement  int    `json:"neckMeasurement"`
 		WaistMeasurement int    `json:"waistMeasurement"`
+		HipMeasurement   int    `json:"hipMeasurement"`
 		Goal             string `json:"goal" binding:"omitempty,oneof=lose maintain gain"`
 	}
 
@@ -216,6 +221,7 @@ func updateProfile(c *gin.Context) {
 	user.Height = updateData.Height
 	user.NeckMeasure = updateData.NeckMeasurement
 	user.WaistMeasure = updateData.WaistMeasurement
+	user.HipMeasure = updateData.HipMeasurement
 	if updateData.Goal != "" {
 		user.Goal = updateData.Goal
 	}

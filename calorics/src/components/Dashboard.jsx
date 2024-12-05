@@ -9,6 +9,7 @@ function Dashboard() {
     neckMeasurement: 0,
     waistMeasurement: 0,
     fatPercentage: 0,
+    age: 0,
     goal: 'maintain'
   });
 
@@ -76,7 +77,7 @@ function Dashboard() {
           Profile
         </button>
       </div>
-      <h1>Daily Progress</h1>
+      <h1>Calorics Daily Progress</h1>
       
       {/* Calorie Progress Section */}
       <div className="stats-card calorie-card">
@@ -99,6 +100,10 @@ function Dashboard() {
         <div className="stats-card">
           <h3>Current Weight</h3>
           <p>{userStats.currentWeight} kg</p>
+        </div>
+        <div className="stats-card">
+          <h3>Age</h3>
+          <p>{userStats.age} years</p>
         </div>
         <div className="stats-card">
           <h3>Neck</h3>

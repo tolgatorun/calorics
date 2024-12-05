@@ -17,9 +17,10 @@ type User struct {
 	Birthday      string      `json:"birthday" binding:"required"`
 	Weight        int         `json:"weight,omitempty"`
 	Height        int         `json:"height,omitempty"`
-	Age           int         `json:"-"`
+	Age           int         `json:"age,omitempty" gorm:"-"`
 	WaistMeasure  int         `json:"waist_measure,omitempty"`
 	NeckMeasure   int         `json:"neck_measure,omitempty"`
+	HipMeasure    int         `json:"hip_measure,omitempty"`
 	FatPercentage int         `json:"fat_percentage,omitempty" gorm:"->"`
 	Goal          string      `json:"goal" gorm:"default:'maintain'" binding:"omitempty,oneof=lose maintain gain"`
 	FoodEntries   []FoodEntry `json:"food_entries,omitempty" gorm:"foreignKey:UserID"`
@@ -31,8 +32,10 @@ type UserStats struct {
 	CurrentWeight    int     `json:"currentWeight"`
 	NeckMeasurement  int     `json:"neckMeasurement"`
 	WaistMeasurement int     `json:"waistMeasurement"`
+	HipMeasurement   int     `json:"hipMeasurement"`
 	FatPercentage    int     `json:"fatPercentage"`
 	Goal             string  `json:"goal"`
+	Age              int     `json:"age"`
 }
 
 type LoginRequest struct {
@@ -51,20 +54,26 @@ func (u *User) CalculateFatPercentage() int {
 		return 0
 	}
 
-	waistNeck := float64(u.WaistMeasure - u.NeckMeasure)
 	height := float64(u.Height)
-
-	if waistNeck <= 0 {
-		u.FatPercentage = 0
-		return 0
-	}
-
 	var result float64
+
 	if u.Gender == "male" {
+		waistNeck := float64(u.WaistMeasure - u.NeckMeasure)
+		if waistNeck <= 0 {
+			u.FatPercentage = 0
+			return 0
+		}
 		result = 495/(1.0324-0.19077*math.Log10(waistNeck)+0.15456*math.Log10(height)) - 450
 	} else {
-		// Formula for females
-		result = 495/(1.29579-0.35004*math.Log10(waistNeck)+0.22100*math.Log10(height)) - 450
+		if u.HipMeasure == 0 {
+			u.FatPercentage = 0
+			return 0
+		}
+		// U.S. Navy formula for females using hip measurement
+		waist := float64(u.WaistMeasure)
+		hip := float64(u.HipMeasure)
+		neck := float64(u.NeckMeasure)
+		result = 495/(1.29579-0.35004*math.Log10(waist+hip-neck)+0.22100*math.Log10(height)) - 450
 	}
 
 	// Ensure the result is within reasonable bounds (5-50%)
@@ -75,8 +84,8 @@ func (u *User) CalculateFatPercentage() int {
 	}
 
 	// Log the calculation details
-	log.Printf("Fat percentage calculation: Gender=%s, Height=%d, Waist=%d, Neck=%d, Result=%f",
-		u.Gender, u.Height, u.WaistMeasure, u.NeckMeasure, result)
+	log.Printf("Fat percentage calculation: Gender=%s, Height=%d, Waist=%d, Neck=%d, Hip=%d, Result=%f",
+		u.Gender, u.Height, u.WaistMeasure, u.NeckMeasure, u.HipMeasure, result)
 
 	fatPercentage := int(math.Round(result))
 	u.FatPercentage = fatPercentage
@@ -118,13 +127,14 @@ func (u *User) GetStats() UserStats {
 
 	// Ensure fat percentage is calculated
 	u.CalculateFatPercentage()
-
+	u.CalculateAge()
 	stats := UserStats{
 		DailyCalories:    dailyCalories,
 		NeededCalories:   u.CalculateNeededCalories(),
 		CurrentWeight:    u.Weight,
 		NeckMeasurement:  u.NeckMeasure,
 		WaistMeasurement: u.WaistMeasure,
+		HipMeasurement:   u.HipMeasure,
 		FatPercentage:    u.FatPercentage,
 		Goal:             u.Goal,
 	}
@@ -135,15 +145,39 @@ func (u *User) GetStats() UserStats {
 	return stats
 }
 
+func (u *User) CalculateAge() int {
+	birthDate, err := time.Parse("2006-01-02", u.Birthday)
+	if err != nil {
+		log.Printf("Error parsing birthday: %v", err)
+		return 0
+	}
+
+	now := time.Now()
+	age := now.Year() - birthDate.Year()
+
+	// Adjust age if birthday hasn't occurred this year
+	if now.Month() < birthDate.Month() || (now.Month() == birthDate.Month() && now.Day() < birthDate.Day()) {
+		age--
+	}
+	log.Printf("Age calculated: %d\n", age)
+	log.Printf("Current time: %v\n", now)
+	log.Printf("Birthday: %v\n", birthDate)
+
+	u.Age = age
+	return age
+}
+
 func (u *User) BeforeCreate(tx *gorm.DB) error {
 	if u.Goal == "" {
 		u.Goal = "maintain"
 	}
+	u.Age = u.CalculateAge()
 	u.FatPercentage = u.CalculateFatPercentage()
 	return nil
 }
 
 func (u *User) BeforeUpdate(tx *gorm.DB) error {
+	u.CalculateAge()
 	u.FatPercentage = u.CalculateFatPercentage()
 	return nil
 }
