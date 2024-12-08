@@ -46,10 +46,11 @@ func main() {
 		protected.GET("/user/stats", getUserStats)
 		protected.GET("/user/profile", getProfile)
 		protected.PUT("/user/profile", updateProfile)
+		protected.GET("/foods", getFoods)
 		protected.POST("/food-entries", createFoodEntry)
 		protected.GET("/food-entries", getUserFoodEntries)
 		protected.DELETE("/food-entries/:id", deleteFoodEntry)
-		protected.POST("/food-entries/direct", createDirectFoodEntry)
+		protected.GET("/debug/food-entries", debugFoodEntries)
 	}
 
 	router.Run(":8080")
@@ -121,24 +122,44 @@ func login(c *gin.Context) {
 
 func getUserStats(c *gin.Context) {
 	userID := c.GetUint("user_id")
+	log.Printf("Fetching stats for user ID: %d", userID)
 
 	var user models.User
-	// Get today's food entries
-	today := time.Now().Format("2006-01-02")
-	if err := config.DB.Preload("FoodEntries", "date = ?", today).First(&user, userID).Error; err != nil {
+	// First, let's get all entries to check their dates
+	if err := config.DB.Preload("FoodEntries").
+		Preload("FoodEntries.Food").
+		First(&user, userID).Error; err != nil {
+		log.Printf("Error fetching user data: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
-	// Calculate fat percentage
-	fatPercentage := user.CalculateFatPercentage()
-	age := user.CalculateAge()
-	// Calculate daily calories
-	var dailyCalories float64
+	// Log all entries and their dates for debugging
+	log.Printf("All food entries for user %d:", userID)
+	for i, entry := range user.FoodEntries {
+		log.Printf("Entry %d: Date: %s, Food ID: %d, Name: %s, Calories: %f",
+			i, entry.Date, entry.FoodID, entry.Food.Name, entry.Calories)
+	}
+
+	// Filter entries for today
+	today := time.Now().Format("2006-01-02")
+	var todayEntries []models.FoodEntry
 	for _, entry := range user.FoodEntries {
 		if entry.Date == today {
-			dailyCalories += entry.Calories
+			todayEntries = append(todayEntries, entry)
 		}
+	}
+
+	log.Printf("Found %d food entries for today (%s)", len(todayEntries), today)
+
+	// Calculate fat percentage and age
+	fatPercentage := user.CalculateFatPercentage()
+	age := user.CalculateAge()
+
+	// Calculate daily calories from filtered entries
+	var dailyCalories float64
+	for _, entry := range todayEntries {
+		dailyCalories += entry.Calories
 	}
 
 	// Get needed calories
@@ -154,8 +175,10 @@ func getUserStats(c *gin.Context) {
 		FatPercentage:    fatPercentage,
 		Goal:             user.Goal,
 		Age:              age,
+		FoodEntries:      todayEntries,
 	}
 
+	log.Printf("Returning stats with %d food entries", len(stats.FoodEntries))
 	c.JSON(http.StatusOK, stats)
 }
 
@@ -244,26 +267,118 @@ func updateProfile(c *gin.Context) {
 	})
 }
 
+func getFoods(c *gin.Context) {
+	var foods []models.Food
+	if err := config.DB.Find(&foods).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch foods"})
+		return
+	}
+
+	type FoodResponse struct {
+		ID            uint                 `json:"ID"`
+		Name          string               `json:"name"`
+		Calories      int                  `json:"calories"`
+		Protein       float64              `json:"protein"`
+		Carbohydrates float64              `json:"carbohydrates"`
+		Fat           float64              `json:"fat"`
+		ServingSize   int                  `json:"serving_size"`
+		Category      string               `json:"category"`
+		Servings      []models.FoodServing `json:"servings"`
+	}
+
+	var response []FoodResponse
+	for _, food := range foods {
+		var servings []models.FoodServing
+		if err := config.DB.Where("food_id = ?", food.ID).Find(&servings).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch food servings"})
+			return
+		}
+
+		response = append(response, FoodResponse{
+			ID:            food.ID,
+			Name:          food.Name,
+			Calories:      food.Calories,
+			Protein:       food.Protein,
+			Carbohydrates: food.Carbohydrates,
+			Fat:           food.Fat,
+			ServingSize:   food.ServingSize,
+			Category:      food.Category,
+			Servings:      servings,
+		})
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
 func createFoodEntry(c *gin.Context) {
+	userID := c.GetUint("user_id")
 	var foodEntry models.FoodEntry
+
 	if err := c.ShouldBindJSON(&foodEntry); err != nil {
+		log.Printf("Error binding food entry JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	userID := c.GetUint("user_id")
+	// Set the user ID
 	foodEntry.UserID = userID
 
-	// Load the food data
-	if err := config.DB.First(&foodEntry.Food, foodEntry.FoodID).Error; err != nil {
+	// Load the food data to calculate calories
+	var food models.Food
+	if err := config.DB.First(&food, foodEntry.FoodID).Error; err != nil {
+		log.Printf("Error loading food data: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid food ID"})
 		return
 	}
 
+	// Find the serving size
+	var serving models.FoodServing
+	if err := config.DB.Where("food_id = ? AND description = ?", foodEntry.FoodID, foodEntry.ServingDesc).First(&serving).Error; err != nil {
+		log.Printf("Error loading serving data: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid serving size"})
+		return
+	}
+
+	// Calculate calories based on serving size and quantity
+	// (calories per 100g * serving grams * quantity) / 100
+	foodEntry.Calories = float64(food.Calories) * serving.Grams * foodEntry.Quantity / 100.0
+
+	log.Printf("Calculated calories: %f (food calories per 100g: %d, serving grams: %f, quantity: %f)",
+		foodEntry.Calories, food.Calories, serving.Grams, foodEntry.Quantity)
+
+	// Ensure the date is in the correct format (YYYY-MM-DD)
+	if foodEntry.Date == "" {
+		foodEntry.Date = time.Now().Format("2006-01-02")
+	} else {
+		// Try to parse and reformat the date to ensure consistency
+		parsedDate, err := time.Parse("2006-01-02", foodEntry.Date)
+		if err != nil {
+			log.Printf("Invalid date format: %s", foodEntry.Date)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Use YYYY-MM-DD"})
+			return
+		}
+		foodEntry.Date = parsedDate.Format("2006-01-02")
+	}
+
+	log.Printf("Creating food entry for user %d: Date=%s, FoodID=%d, Quantity=%f, Calories=%f",
+		userID, foodEntry.Date, foodEntry.FoodID, foodEntry.Quantity, foodEntry.Calories)
+
+	// Create the food entry
 	if err := config.DB.Create(&foodEntry).Error; err != nil {
+		log.Printf("Error creating food entry: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create food entry"})
 		return
 	}
+
+	// Load the associated food data for the response
+	if err := config.DB.Preload("Food").First(&foodEntry, foodEntry.ID).Error; err != nil {
+		log.Printf("Error loading food data for response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load food data"})
+		return
+	}
+
+	log.Printf("Successfully created food entry: ID=%d, Date=%s, Food=%s, Calories=%f",
+		foodEntry.ID, foodEntry.Date, foodEntry.Food.Name, foodEntry.Calories)
 
 	c.JSON(http.StatusOK, foodEntry)
 }
@@ -278,7 +393,7 @@ func getUserFoodEntries(c *gin.Context) {
 	}
 
 	var entries []models.FoodEntry
-	if err := query.Find(&entries).Error; err != nil {
+	if err := query.Order("created_at desc").Find(&entries).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch food entries"})
 		return
 	}
@@ -333,7 +448,7 @@ func createDirectFoodEntry(c *gin.Context) {
 		UserID:   userID,
 		FoodID:   food.ID,
 		Food:     food,
-		Quantity: directEntry.Quantity,
+		Quantity: float64(directEntry.Quantity),
 		Date:     directEntry.Date,
 		Calories: caloriesForQuantity,
 	}
@@ -344,4 +459,25 @@ func createDirectFoodEntry(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, foodEntry)
+}
+
+func debugFoodEntries(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var entries []models.FoodEntry
+
+	if err := config.DB.Where("user_id = ?", userID).
+		Preload("Food").
+		Find(&entries).Error; err != nil {
+		log.Printf("Error fetching food entries: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch food entries"})
+		return
+	}
+
+	log.Printf("Found %d total food entries for user %d", len(entries), userID)
+	for i, entry := range entries {
+		log.Printf("Entry %d: Date: %s, Food ID: %d, Name: %s, Calories: %f",
+			i, entry.Date, entry.FoodID, entry.Food.Name, entry.Calories)
+	}
+
+	c.JSON(http.StatusOK, entries)
 }

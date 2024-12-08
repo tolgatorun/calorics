@@ -27,15 +27,16 @@ type User struct {
 }
 
 type UserStats struct {
-	DailyCalories    float64 `json:"dailyCalories"`
-	NeededCalories   int     `json:"neededCalories"`
-	CurrentWeight    int     `json:"currentWeight"`
-	NeckMeasurement  int     `json:"neckMeasurement"`
-	WaistMeasurement int     `json:"waistMeasurement"`
-	HipMeasurement   int     `json:"hipMeasurement"`
-	FatPercentage    int     `json:"fatPercentage"`
-	Goal             string  `json:"goal"`
-	Age              int     `json:"age"`
+	DailyCalories    float64     `json:"dailyCalories"`
+	NeededCalories   int         `json:"neededCalories"`
+	CurrentWeight    int         `json:"currentWeight"`
+	NeckMeasurement  int         `json:"neckMeasurement"`
+	WaistMeasurement int         `json:"waistMeasurement"`
+	HipMeasurement   int         `json:"hipMeasurement"`
+	FatPercentage    int         `json:"fatPercentage"`
+	Goal             string      `json:"goal"`
+	Age              int         `json:"age"`
+	FoodEntries      []FoodEntry `json:"foodEntries"`
 }
 
 type LoginRequest struct {
@@ -84,8 +85,8 @@ func (u *User) CalculateFatPercentage() int {
 	}
 
 	// Log the calculation details
-	log.Printf("Fat percentage calculation: Gender=%s, Height=%d, Waist=%d, Neck=%d, Hip=%d, Result=%f",
-		u.Gender, u.Height, u.WaistMeasure, u.NeckMeasure, u.HipMeasure, result)
+	//log.Printf("Fat percentage calculation: Gender=%s, Height=%d, Waist=%d, Neck=%d, Hip=%d, Result=%f",
+	//	u.Gender, u.Height, u.WaistMeasure, u.NeckMeasure, u.HipMeasure, result)
 
 	fatPercentage := int(math.Round(result))
 	u.FatPercentage = fatPercentage
@@ -93,18 +94,40 @@ func (u *User) CalculateFatPercentage() int {
 }
 
 func (u *User) CalculateNeededCalories() int {
-	// Calculate Lean Body Mass (LBM)
-	bodyFatDecimal := float64(u.FatPercentage) / 100
-	lbm := float64(u.Weight) * (1 - bodyFatDecimal)
+	// Calculate age first
+	u.CalculateAge()
 
-	// Basal Metabolic Rate (BMR) using Katch-McArdle formula
-	bmr := 370 + (21.6 * lbm)
+	// Calculate BMR using Mifflin-St Jeor Equation
+	// BMR = (10 × weight) + (6.25 × height) - (5 × age) + s
+	// where s is +5 for males and -161 for females
+	weight := float64(u.Weight)
+	height := float64(u.Height)
+	age := float64(u.Age)
 
-	// Activity multiplier (using moderate activity by default)
-	activityMultiplier := 1.55
+	var bmr float64
+	if u.Gender == "male" {
+		bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5
+	} else {
+		bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161
+	}
+
+	// Activity multiplier based on goal
+	var activityMultiplier float64
+	switch u.Goal {
+	case "lose":
+		activityMultiplier = 1.2 // Sedentary (little or no exercise)
+	case "maintain":
+		activityMultiplier = 1.55 // Moderate exercise (3-5 days/week)
+	case "gain":
+		activityMultiplier = 1.725 // Very active (6-7 days/week)
+	default:
+		activityMultiplier = 1.55
+	}
+
+	// Calculate TDEE (Total Daily Energy Expenditure)
 	tdee := bmr * activityMultiplier
 
-	// Adjust based on goal
+	// Adjust calories based on goal
 	switch u.Goal {
 	case "lose":
 		return int(tdee - 500) // 500 calorie deficit for weight loss
@@ -119,9 +142,12 @@ func (u *User) GetStats() UserStats {
 	// Calculate daily calories consumed
 	var dailyCalories float64
 	today := time.Now().Format("2006-01-02")
+	var todaysFoodEntries []FoodEntry
+
 	for _, entry := range u.FoodEntries {
 		if entry.Date == today {
 			dailyCalories += entry.Calories
+			todaysFoodEntries = append(todaysFoodEntries, entry)
 		}
 	}
 
@@ -137,10 +163,9 @@ func (u *User) GetStats() UserStats {
 		HipMeasurement:   u.HipMeasure,
 		FatPercentage:    u.FatPercentage,
 		Goal:             u.Goal,
+		Age:              u.Age,
+		FoodEntries:      todaysFoodEntries,
 	}
-
-	// Log the stats
-	log.Printf("Generated stats: %+v", stats)
 
 	return stats
 }
@@ -159,9 +184,9 @@ func (u *User) CalculateAge() int {
 	if now.Month() < birthDate.Month() || (now.Month() == birthDate.Month() && now.Day() < birthDate.Day()) {
 		age--
 	}
-	log.Printf("Age calculated: %d\n", age)
-	log.Printf("Current time: %v\n", now)
-	log.Printf("Birthday: %v\n", birthDate)
+	//log.Printf("Age calculated: %d\n", age)
+	//log.Printf("Current time: %v\n", now)
+	//log.Printf("Birthday: %v\n", birthDate)
 
 	u.Age = age
 	return age
@@ -189,26 +214,24 @@ type Food struct {
 	Protein       float64 `json:"protein"`
 	Carbohydrates float64 `json:"carbohydrates"`
 	Fat           float64 `json:"fat"`
-	ServingSize   int     `json:"serving_size" binding:"required"` // in grams
+	ServingSize   int     `json:"serving_size" binding:"required"` // Base serving size in grams
+	Category      string  `json:"category"`                        // Food category
+}
+
+type FoodServing struct {
+	gorm.Model
+	FoodID      uint    `json:"food_id"`
+	Description string  `json:"description"` // e.g., "1 tablespoon", "1 medium piece"
+	Grams       float64 `json:"grams"`       // Equivalent in grams
 }
 
 type FoodEntry struct {
 	gorm.Model
-	UserID   uint    `json:"user_id"`
-	FoodID   uint    `json:"food_id"`
-	Food     Food    `json:"food" gorm:"foreignKey:FoodID"`
-	Quantity int     `json:"quantity" binding:"required"` // in grams
-	Date     string  `json:"date" binding:"required"`
-	Calories float64 `json:"calories"`
-}
-
-// Calculate calories for food entry based on quantity and food data
-func (fe *FoodEntry) CalculateCalories() {
-	caloriesPer100g := float64(fe.Food.Calories)
-	fe.Calories = (caloriesPer100g * float64(fe.Quantity)) / float64(fe.Food.ServingSize)
-}
-
-func (fe *FoodEntry) BeforeCreate(tx *gorm.DB) error {
-	fe.CalculateCalories()
-	return nil
+	UserID      uint    `json:"user_id"`
+	FoodID      uint    `json:"food_id" binding:"required"`
+	Food        Food    `json:"food" gorm:"foreignKey:FoodID;references:ID" binding:"-"`
+	ServingDesc string  `json:"serving_desc" binding:"required"`
+	Quantity    float64 `json:"quantity" binding:"required"`
+	Date        string  `json:"date" binding:"required"`
+	Calories    float64 `json:"calories"`
 }
