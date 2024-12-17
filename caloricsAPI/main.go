@@ -51,6 +51,12 @@ func main() {
 		protected.GET("/food-entries", getUserFoodEntries)
 		protected.DELETE("/food-entries/:id", deleteFoodEntry)
 		protected.GET("/debug/food-entries", debugFoodEntries)
+		protected.POST("/food-sets", createFoodSet)
+		protected.GET("/food-sets", getUserFoodSets)
+		//protected.GET("/food-sets/:id", getFoodSet)
+		//protected.PUT("/food-sets/:id", updateFoodSet)
+		//protected.DELETE("/food-sets/:id", deleteFoodSet)
+		protected.POST("/food-sets/:id/apply", applyFoodSet)
 	}
 
 	router.Run(":8080")
@@ -124,8 +130,21 @@ func getUserStats(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	log.Printf("Fetching stats for user ID: %d", userID)
 
+	// Get date from query parameter or use today's date
+	var targetDate string
+	queryDate := c.Query("date")
+	if queryDate != "" {
+		// Validate the date format
+		if _, err := time.Parse("2006-01-02", queryDate); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Use YYYY-MM-DD"})
+			return
+		}
+		targetDate = queryDate
+	} else {
+		targetDate = time.Now().Format("2006-01-02")
+	}
+
 	var user models.User
-	// First, let's get all entries to check their dates
 	if err := config.DB.Preload("FoodEntries").
 		Preload("FoodEntries.Food").
 		First(&user, userID).Error; err != nil {
@@ -134,23 +153,15 @@ func getUserStats(c *gin.Context) {
 		return
 	}
 
-	// Log all entries and their dates for debugging
-	log.Printf("All food entries for user %d:", userID)
-	for i, entry := range user.FoodEntries {
-		log.Printf("Entry %d: Date: %s, Food ID: %d, Name: %s, Calories: %f",
-			i, entry.Date, entry.FoodID, entry.Food.Name, entry.Calories)
-	}
-
-	// Filter entries for today
-	today := time.Now().Format("2006-01-02")
-	var todayEntries []models.FoodEntry
+	// Filter entries for target date
+	var dateEntries []models.FoodEntry
 	for _, entry := range user.FoodEntries {
-		if entry.Date == today {
-			todayEntries = append(todayEntries, entry)
+		if entry.Date == targetDate {
+			dateEntries = append(dateEntries, entry)
 		}
 	}
 
-	log.Printf("Found %d food entries for today (%s)", len(todayEntries), today)
+	log.Printf("Found %d food entries for date %s", len(dateEntries), targetDate)
 
 	// Calculate fat percentage and age
 	fatPercentage := user.CalculateFatPercentage()
@@ -158,7 +169,7 @@ func getUserStats(c *gin.Context) {
 
 	// Calculate daily calories from filtered entries
 	var dailyCalories float64
-	for _, entry := range todayEntries {
+	for _, entry := range dateEntries {
 		dailyCalories += entry.Calories
 	}
 
@@ -175,10 +186,10 @@ func getUserStats(c *gin.Context) {
 		FatPercentage:    fatPercentage,
 		Goal:             user.Goal,
 		Age:              age,
-		FoodEntries:      todayEntries,
+		FoodEntries:      dateEntries,
 	}
 
-	log.Printf("Returning stats with %d food entries", len(stats.FoodEntries))
+	log.Printf("Returning stats with %d food entries for date %s", len(stats.FoodEntries), targetDate)
 	c.JSON(http.StatusOK, stats)
 }
 
@@ -481,3 +492,97 @@ func debugFoodEntries(c *gin.Context) {
 
 	c.JSON(http.StatusOK, entries)
 }
+
+func createFoodSet(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var foodSet models.FoodSet
+
+	if err := c.ShouldBindJSON(&foodSet); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	foodSet.UserID = userID
+
+	// Validate and process each food entry
+	for i := range foodSet.Entries {
+		entry := &foodSet.Entries[i]
+		entry.UserID = userID
+
+		// Load food data and calculate calories
+		var food models.Food
+		if err := config.DB.First(&food, entry.FoodID).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid food ID in entry"})
+			return
+		}
+
+		// Find serving size
+		var serving models.FoodServing
+		if err := config.DB.Where("food_id = ? AND description = ?", entry.FoodID, entry.ServingDesc).
+			First(&serving).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid serving size"})
+			return
+		}
+
+		// Calculate calories
+		entry.Calories = float64(food.Calories) * serving.Grams * entry.Quantity / 100.0
+	}
+
+	if err := config.DB.Create(&foodSet).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create food set"})
+		return
+	}
+
+	c.JSON(http.StatusOK, foodSet)
+}
+
+func getUserFoodSets(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var foodSets []models.FoodSet
+
+	if err := config.DB.Where("user_id = ?", userID).
+		Preload("Entries.Food").
+		Find(&foodSets).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch food sets"})
+		return
+	}
+
+	c.JSON(http.StatusOK, foodSets)
+}
+
+func applyFoodSet(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	setID := c.Param("id")
+	date := c.Query("date")
+
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+
+	// Load the food set
+	var foodSet models.FoodSet
+	if err := config.DB.Where("id = ? AND user_id = ?", setID, userID).
+		Preload("Entries").First(&foodSet).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Food set not found"})
+		return
+	}
+
+	// Create new entries for the current date
+	var newEntries []models.FoodEntry
+	for _, entry := range foodSet.Entries {
+		newEntry := entry
+		newEntry.ID = 0 // Reset ID for new entry
+		newEntry.Date = date
+		newEntries = append(newEntries, newEntry)
+	}
+
+	// Save all new entries
+	if err := config.DB.Create(&newEntries).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create food entries"})
+		return
+	}
+
+	c.JSON(http.StatusOK, newEntries)
+}
+
+// ... Add other handlers (updateFoodSet, deleteFoodSet, getFoodSet) following similar patterns

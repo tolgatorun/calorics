@@ -14,18 +14,21 @@ function Dashboard() {
     foodEntries: []
   });
 
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [isLoading, setIsLoading] = useState(true);
+  const [isFoodEntriesLoading, setIsFoodEntriesLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Fetch user stats when component mounts
-    fetchUserStats();
-  }, []);
+    fetchUserStats(selectedDate);
+  }, [selectedDate]);
 
-  const fetchUserStats = async () => {
+  const fetchUserStats = async (date) => {
+    setIsFoodEntriesLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:8080/api/user/stats', {
+      const formattedDate = date.toISOString().split('T')[0];
+      const response = await fetch(`http://localhost:8080/api/user/stats?date=${formattedDate}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -49,7 +52,23 @@ function Dashboard() {
       console.error('Error fetching stats:', error);
     } finally {
       setIsLoading(false);
+      setIsFoodEntriesLoading(false);
     }
+  };
+
+  const changeDate = (days) => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(selectedDate.getDate() + days);
+    setSelectedDate(newDate);
+  };
+
+  const formatDate = (date) => {
+    return new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }).format(date);
   };
 
   const handleFoodRegister = () => {
@@ -95,6 +114,13 @@ function Dashboard() {
       </div>
       <h1>Calorics Daily Progress</h1>
       
+      {/* Date Navigation */}
+      <div className="date-navigation">
+        <button onClick={() => changeDate(-1)}>&lt;</button>
+        <h2>{formatDate(selectedDate)}</h2>
+        <button onClick={() => changeDate(1)}>&gt;</button>
+      </div>
+
       {/* Calorie Progress Section */}
       <div className="stats-card calorie-card">
         <h2>Calories</h2>
@@ -114,10 +140,12 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* Today's Food Entries */}
+      {/* Today's Food Entries - Update the title */}
       <div className="stats-card food-entries-card">
-        <h2>Today's Foods</h2>
-        {userStats.foodEntries && userStats.foodEntries.length > 0 ? (
+        <h2>Foods for {selectedDate.toDateString()}</h2>
+        {isFoodEntriesLoading ? (
+          <div className="loading-spinner">Loading food entries...</div>
+        ) : userStats.foodEntries && userStats.foodEntries.length > 0 ? (
           <div className="food-entries-list">
             {userStats.foodEntries.map((entry) => (
               <div key={entry.ID} className="food-entry-item">
@@ -274,6 +302,41 @@ function Dashboard() {
           text-align: center;
           color: #666;
           margin: 20px 0;
+        }
+
+        .date-navigation {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 20px;
+          margin: 20px 0;
+        }
+
+        .date-navigation button {
+          padding: 8px 16px;
+          font-size: 1.2em;
+          background-color: #4CAF50;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          transition: background-color 0.3s;
+        }
+
+        .date-navigation button:hover {
+          background-color: #45a049;
+        }
+
+        .date-navigation h2 {
+          margin: 0;
+          min-width: 300px;
+          text-align: center;
+        }
+
+        .loading-spinner {
+          text-align: center;
+          padding: 20px;
+          color: #666;
         }
       `}</style>
     </div>

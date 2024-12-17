@@ -172,7 +172,7 @@ func ConnectDatabase() {
 	}
 
 	// First migrate all tables to ensure they exist
-	err = database.AutoMigrate(&models.User{}, &models.Food{}, &models.FoodServing{}, &models.FoodEntry{})
+	err = database.AutoMigrate(&models.User{}, &models.Food{}, &models.FoodServing{}, &models.FoodEntry{}, &models.FoodSet{})
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}

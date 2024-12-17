@@ -234,4 +234,13 @@ type FoodEntry struct {
 	Quantity    float64 `json:"quantity" binding:"required"`
 	Date        string  `json:"date" binding:"required"`
 	Calories    float64 `json:"calories"`
+	FoodSetID   *uint   `json:"food_set_id,omitempty"`
+}
+
+type FoodSet struct {
+	gorm.Model
+	UserID      uint        `json:"user_id"`
+	Name        string      `json:"name" binding:"required"`
+	Description string      `json:"description"`
+	Entries     []FoodEntry `json:"entries" gorm:"foreignKey:FoodSetID"`
 }
