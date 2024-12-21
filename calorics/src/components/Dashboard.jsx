@@ -56,6 +56,35 @@ function Dashboard() {
     }
   };
 
+  const handleDeleteFoodEntry = async (entryId) => {
+    if (!window.confirm('Are you sure you want to delete this food entry?')) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:8080/api/food-entries/${entryId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        // Update the UI by removing the deleted entry
+        setUserStats(prev => ({
+          ...prev,
+          foodEntries: prev.foodEntries.filter(entry => entry.ID !== entryId),
+          dailyCalories: prev.dailyCalories - prev.foodEntries.find(entry => entry.ID === entryId).calories
+        }));
+      } else {
+        console.error('Failed to delete food entry');
+      }
+    } catch (error) {
+      console.error('Error deleting food entry:', error);
+    }
+  };
+
   const changeDate = (days) => {
     const newDate = new Date(selectedDate);
     newDate.setDate(selectedDate.getDate() + days);
@@ -153,6 +182,12 @@ function Dashboard() {
                 <div className="food-entry-details">
                   <span>{entry.quantity} × {entry.serving_desc}</span>
                   <span>{Math.round(entry.calories)} kcal</span>
+                  <button 
+                    className="delete-entry-btn"
+                    onClick={() => handleDeleteFoodEntry(entry.ID)}
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
             ))}
@@ -280,10 +315,8 @@ function Dashboard() {
 
         .food-entry-details {
           display: flex;
-          gap: 20px;
-          color: #666;
-          font-size: 0.95em;
-          white-space: nowrap;
+          gap: 15px;
+          align-items: center;
         }
 
         .food-entry-details span:first-child {
@@ -296,6 +329,26 @@ function Dashboard() {
           text-align: right;
           font-weight: 500;
           color: #333;
+        }
+
+        .delete-entry-btn {
+          background: none;
+          border: none;
+          color: #ff4d4d;
+          font-size: 1.2em;
+          cursor: pointer;
+          padding: 0 5px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          transition: background-color 0.2s;
+        }
+
+        .delete-entry-btn:hover {
+          background-color: rgba(255, 77, 77, 0.1);
         }
 
         .no-foods {

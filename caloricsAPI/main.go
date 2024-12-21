@@ -55,7 +55,7 @@ func main() {
 		protected.GET("/food-sets", getUserFoodSets)
 		//protected.GET("/food-sets/:id", getFoodSet)
 		//protected.PUT("/food-sets/:id", updateFoodSet)
-		//protected.DELETE("/food-sets/:id", deleteFoodSet)
+		protected.DELETE("/food-sets/:id", deleteFoodSet)
 		protected.POST("/food-sets/:id/apply", applyFoodSet)
 	}
 
@@ -559,10 +559,10 @@ func applyFoodSet(c *gin.Context) {
 		date = time.Now().Format("2006-01-02")
 	}
 
-	// Load the food set
+	// Load the food set with full food data
 	var foodSet models.FoodSet
 	if err := config.DB.Where("id = ? AND user_id = ?", setID, userID).
-		Preload("Entries").First(&foodSet).Error; err != nil {
+		Preload("Entries.Food").First(&foodSet).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Food set not found"})
 		return
 	}
@@ -570,9 +570,15 @@ func applyFoodSet(c *gin.Context) {
 	// Create new entries for the current date
 	var newEntries []models.FoodEntry
 	for _, entry := range foodSet.Entries {
-		newEntry := entry
-		newEntry.ID = 0 // Reset ID for new entry
-		newEntry.Date = date
+		newEntry := models.FoodEntry{
+			UserID:      userID,
+			FoodID:      entry.FoodID,
+			ServingDesc: entry.ServingDesc,
+			Quantity:    entry.Quantity,
+			Date:        date,
+			Calories:    entry.Calories,
+			Food:        entry.Food,
+		}
 		newEntries = append(newEntries, newEntry)
 	}
 
@@ -583,6 +589,26 @@ func applyFoodSet(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, newEntries)
+}
+
+func deleteFoodSet(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	setID := c.Param("id")
+
+	// First verify the food set belongs to the user
+	var foodSet models.FoodSet
+	if err := config.DB.Where("id = ? AND user_id = ?", setID, userID).First(&foodSet).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Food set not found"})
+		return
+	}
+
+	// Delete the food set (this will automatically delete associated entries due to GORM's cascading delete)
+	if err := config.DB.Delete(&foodSet).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete food set"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Food set deleted successfully"})
 }
 
 // ... Add other handlers (updateFoodSet, deleteFoodSet, getFoodSet) following similar patterns

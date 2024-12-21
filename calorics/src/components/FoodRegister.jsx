@@ -242,6 +242,34 @@ function FoodRegister() {
     }
   };
 
+  const handleDeleteFoodSet = async (setId) => {
+    if (!window.confirm('Are you sure you want to delete this food set?')) {
+        return;
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:8080/api/food-sets/${setId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            setMessage('Food set deleted successfully!');
+            // Update the food sets list by removing the deleted set
+            setFoodSets(foodSets.filter(set => set.ID !== setId));
+        } else {
+            const error = await response.json();
+            setMessage('Failed to delete food set: ' + error.error);
+        }
+    } catch (error) {
+        console.error('Error deleting food set:', error);
+        setMessage('Error deleting food set');
+    }
+  };
+
   const filteredFoods = searchTerm
     ? foods.filter(food => 
         food.name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -308,12 +336,20 @@ function FoodRegister() {
                     ))}
                   </div>
                 </div>
-                <button 
-                  className="apply-set-btn"
-                  onClick={() => handleApplyFoodSet(set.ID)}
-                >
-                  Apply Set
-                </button>
+                <div className="food-set-actions">
+                    <button 
+                        className="apply-set-btn"
+                        onClick={() => handleApplyFoodSet(set.ID)}
+                    >
+                        Apply Set
+                    </button>
+                    <button 
+                        className="delete-set-btn"
+                        onClick={() => handleDeleteFoodSet(set.ID)}
+                    >
+                        Delete Set
+                    </button>
+                </div>
               </div>
             ))
           )}
