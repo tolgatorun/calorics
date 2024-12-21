@@ -131,6 +131,58 @@ function Dashboard() {
     navigate('/profile');
   };
 
+  const renderProgressBar = () => {
+    if (calorieProgress <= 100) {
+      // Normal case - single green/orange bar
+      return (
+        <div className="progress-bar-container">
+          <div 
+            className="progress-bar" 
+            style={{ 
+              width: `${calorieProgress}%`,
+              backgroundColor: getProgressBarColor(calorieProgress)
+            }}
+          >
+            <span className="progress-text">
+              {Math.round(userStats.dailyCalories)}
+            </span>
+          </div>
+        </div>
+      );
+    } else {
+      // Exceeded case - split bar
+      const neededCalories = userStats.neededCalories;
+      const exceededCalories = Math.round(userStats.dailyCalories - neededCalories);
+      
+      return (
+        <div className="progress-bar-container">
+          <div 
+            className="progress-bar needed" 
+            style={{ 
+              width: '100%',
+              backgroundColor: '#4CAF50'
+            }}
+          >
+            <span className="progress-text">
+              {neededCalories}
+            </span>
+          </div>
+          <div 
+            className="progress-bar exceeded" 
+            style={{ 
+              width: `${calorieProgress - 100}%`,
+              backgroundColor: '#ff4d4d'
+            }}
+          >
+            <span className="progress-text">
+              +{exceededCalories}
+            </span>
+          </div>
+        </div>
+      );
+    }
+  };
+
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
@@ -153,17 +205,16 @@ function Dashboard() {
       {/* Calorie Progress Section */}
       <div className="stats-card calorie-card">
         <h2>Calories</h2>
-        <div className="calorie-progress">
-          <div 
-            className="progress-bar" 
-            style={{ 
-              width: `${Math.min(calorieProgress, 100)}%`,
-              backgroundColor: getProgressBarColor(calorieProgress)
-            }}
-          />
+        <div className="calorie-section">
+          <div className="progress-percentage">
+            {Math.round(calorieProgress)}%
+          </div>
+          <div className="calorie-progress">
+            {renderProgressBar()}
+          </div>
         </div>
         <div className="calorie-numbers">
-          <span>{userStats.dailyCalories} kcal</span>
+          <span>{Math.round(userStats.dailyCalories)} kcal</span>
           <span>of</span>
           <span>{userStats.neededCalories} kcal</span>
         </div>
@@ -256,20 +307,56 @@ function Dashboard() {
           margin-bottom: 20px;
         }
 
+        .calorie-section {
+          margin: 10px 0;
+        }
+
+        .progress-percentage {
+          text-align: center;
+          margin-bottom: 5px;
+          font-weight: bold;
+          color: #333;
+        }
+
         .calorie-progress {
+          position: relative;
           width: 100%;
           height: 20px;
           background-color: #f0f0f0;
           border-radius: 10px;
           overflow: hidden;
-          margin: 10px 0;
-          position: relative;
+        }
+
+        .progress-bar-container {
+          display: flex;
+          width: 100%;
+          height: 100%;
         }
 
         .progress-bar {
           height: 100%;
           transition: width 0.3s ease-in-out;
-          border-radius: 10px;
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .progress-bar.needed {
+          border-radius: 10px 0 0 10px;
+        }
+
+        .progress-bar.exceeded {
+          border-radius: 0 10px 10px 0;
+        }
+
+        .progress-text {
+          color: white;
+          font-size: 0.8em;
+          font-weight: bold;
+          text-shadow: 0 0 2px rgba(0,0,0,0.5);
+          z-index: 1;
+          white-space: nowrap;
         }
 
         .calorie-numbers {
