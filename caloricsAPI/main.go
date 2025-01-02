@@ -57,6 +57,7 @@ func main() {
 		//protected.PUT("/food-sets/:id", updateFoodSet)
 		protected.DELETE("/food-sets/:id", deleteFoodSet)
 		protected.POST("/food-sets/:id/apply", applyFoodSet)
+		protected.GET("/user/weekly-stats", getWeeklyStats)
 	}
 
 	router.Run(":8080")
@@ -611,4 +612,44 @@ func deleteFoodSet(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Food set deleted successfully"})
 }
 
-// ... Add other handlers (updateFoodSet, deleteFoodSet, getFoodSet) following similar patterns
+func getWeeklyStats(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	startDate := c.Query("startDate")
+	endDate := c.Query("endDate")
+
+	if startDate == "" || endDate == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Start date and end date are required"})
+		return
+	}
+
+	var foodEntries []models.FoodEntry
+	if err := config.DB.Where("user_id = ? AND date BETWEEN ? AND ?", userID, startDate, endDate).
+		Find(&foodEntries).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch food entries"})
+		return
+	}
+
+	// Get user's needed calories
+	var user models.User
+	if err := config.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
+		return
+	}
+
+	// Calculate total calories consumed
+	totalCalories := 0.0
+	for _, entry := range foodEntries {
+		totalCalories += entry.Calories
+	}
+
+	// Calculate weekly calorie goal (daily goal * 7 days)
+	weeklyCalorieGoal := float64(user.CalculateNeededCalories() * 7)
+
+	// Calculate the weekly achievement percentage
+	weeklyPercentage := (totalCalories / weeklyCalorieGoal) * 100
+
+	c.JSON(http.StatusOK, gin.H{
+		"totalCalories":     totalCalories,
+		"averagePercentage": weeklyPercentage,
+	})
+}

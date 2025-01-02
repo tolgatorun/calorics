@@ -13,6 +13,10 @@ function Dashboard() {
     goal: 'maintain',
     foodEntries: []
   });
+  const [weeklyStats, setWeeklyStats] = useState({
+    totalCalories: 0,
+    averagePercentage: 0
+  });
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isLoading, setIsLoading] = useState(true);
@@ -21,6 +25,9 @@ function Dashboard() {
 
   useEffect(() => {
     fetchUserStats(selectedDate);
+    if (selectedDate.getDay() === 0) { // Sunday
+      fetchWeeklyStats(selectedDate);
+    }
   }, [selectedDate]);
 
   const fetchUserStats = async (date) => {
@@ -53,6 +60,32 @@ function Dashboard() {
     } finally {
       setIsLoading(false);
       setIsFoodEntriesLoading(false);
+    }
+  };
+
+  const fetchWeeklyStats = async (date) => {
+    try {
+      const token = localStorage.getItem('token');
+      const endDate = date.toISOString().split('T')[0];
+      const startDate = new Date(date);
+      startDate.setDate(date.getDate() - 6); // Get last 7 days
+      const formattedStartDate = startDate.toISOString().split('T')[0];
+
+      const response = await fetch(
+        `http://localhost:8080/api/user/weekly-stats?startDate=${formattedStartDate}&endDate=${endDate}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        setWeeklyStats(data);
+      }
+    } catch (error) {
+      console.error('Error fetching weekly stats:', error);
     }
   };
 
@@ -247,6 +280,23 @@ function Dashboard() {
           <p className="no-foods">No foods logged today</p>
         )}
       </div>
+
+      {/* Weekly Recap - Show only on Sundays */}
+      {selectedDate.getDay() === 0 && (
+        <div className="stats-card weekly-recap-card">
+          <h2>Weekly Recap</h2>
+          <div className="weekly-stats">
+            <div className="weekly-stat-item">
+              <h3>Total Calories This Week</h3>
+              <p>{Math.round(weeklyStats.totalCalories)} kcal</p>
+            </div>
+            <div className="weekly-stat-item">
+              <h3>Weekly Goal Achievement</h3>
+              <p>{Math.round(weeklyStats.averagePercentage)}%</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Measurements Section */}
       <div className="measurements-grid">
@@ -477,6 +527,41 @@ function Dashboard() {
           text-align: center;
           padding: 20px;
           color: #666;
+        }
+
+        .weekly-recap-card {
+          margin: 20px 0;
+          padding: 20px;
+          background-color: #f8f9fa;
+          border: 1px solid #e9ecef;
+        }
+
+        .weekly-stats {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-top: 15px;
+        }
+
+        .weekly-stat-item {
+          text-align: center;
+          padding: 15px;
+          background-color: white;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .weekly-stat-item h3 {
+          margin: 0 0 10px 0;
+          font-size: 1em;
+          color: #666;
+        }
+
+        .weekly-stat-item p {
+          margin: 0;
+          font-size: 1.5em;
+          font-weight: bold;
+          color: #4CAF50;
         }
       `}</style>
     </div>
