@@ -227,14 +227,15 @@ type FoodServing struct {
 
 type FoodEntry struct {
 	gorm.Model
-	UserID      uint    `json:"user_id"`
-	FoodID      uint    `json:"food_id" binding:"required"`
-	Food        Food    `json:"food" gorm:"foreignKey:FoodID;references:ID" binding:"-"`
-	ServingDesc string  `json:"serving_desc" binding:"required"`
-	Quantity    float64 `json:"quantity" binding:"required"`
-	Date        string  `json:"date" binding:"required"`
-	Calories    float64 `json:"calories"`
-	FoodSetID   *uint   `json:"food_set_id,omitempty"`
+	UserID       uint    `json:"user_id"`
+	FoodID       uint    `json:"food_id" binding:"required"`
+	Food         Food    `json:"food" gorm:"foreignKey:FoodID;references:ID" binding:"-"`
+	ServingDesc  string  `json:"serving_desc" binding:"required"`
+	ServingGrams float64 `json:"serving_grams"`
+	Quantity     float64 `json:"quantity" binding:"required"`
+	Date         string  `json:"date" binding:"required"`
+	Calories     float64 `json:"calories"`
+	FoodSetID    *uint   `json:"food_set_id,omitempty"`
 }
 
 type FoodSet struct {

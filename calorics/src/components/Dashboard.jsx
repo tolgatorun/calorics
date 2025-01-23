@@ -23,12 +23,53 @@ function Dashboard() {
   const [isFoodEntriesLoading, setIsFoodEntriesLoading] = useState(false);
   const navigate = useNavigate();
 
+  const [macros, setMacros] = useState({
+    protein: 0,
+    carbs: 0,
+    fat: 0
+  });
+
   useEffect(() => {
     fetchUserStats(selectedDate);
     if (selectedDate.getDay() === 0) { // Sunday
       fetchWeeklyStats(selectedDate);
     }
   }, [selectedDate]);
+
+  useEffect(() => {
+    // Calculate daily macros from food entries
+    if (userStats.foodEntries && userStats.foodEntries.length > 0) {
+      const dailyMacros = userStats.foodEntries.reduce((acc, entry) => {
+        const protein = (Number(entry.food.protein) * entry.calories) / (entry.food.calories);
+        const carbs = (Number(entry.food.carbohydrates) * entry.calories) / (entry.food.calories);
+        const fat = (Number(entry.food.fat) * entry.calories) / (entry.food.calories);
+        
+        return {
+          protein: acc.protein + protein,
+          carbs: acc.carbs + carbs,
+          fat: acc.fat + fat
+        };
+      }, { protein: 0, carbs: 0, fat: 0 });
+
+      setMacros(dailyMacros);
+    } else {
+      setMacros({ protein: 0, carbs: 0, fat: 0 });
+    }
+  }, [userStats.foodEntries]);
+
+  // Calculate macro targets based on body weight - using the middle of the range as target
+  const macroTargets = {
+    protein: userStats.currentWeight * 1.75, // middle of 1.5-2.0 range
+    carbs: userStats.currentWeight * 6.5,    // middle of 6.0-7.0 range
+    fat: userStats.currentWeight * 1.15      // middle of 1.0-1.3 range
+  };
+
+  const calculateProgress = (current, target) => {
+    if (!userStats.foodEntries || userStats.foodEntries.length === 0) {
+      return 0;
+    }
+    return Math.min((current / target) * 100, 100);
+  };
 
   const fetchUserStats = async (date) => {
     setIsFoodEntriesLoading(true);
@@ -166,14 +207,14 @@ function Dashboard() {
 
   const renderProgressBar = () => {
     if (calorieProgress <= 100) {
-      // Normal case - single green/orange bar
+      // Normal case - single green bar
       return (
         <div className="progress-bar-container">
           <div 
             className="progress-bar" 
             style={{ 
               width: `${calorieProgress}%`,
-              backgroundColor: getProgressBarColor(calorieProgress)
+              backgroundColor: '#4CAF50'
             }}
           >
             <span className="progress-text">
@@ -183,33 +224,43 @@ function Dashboard() {
         </div>
       );
     } else {
-      // Exceeded case - split bar
+      // Exceeded case - split bar with green up to 100% and red for excess
       const neededCalories = userStats.neededCalories;
       const exceededCalories = Math.round(userStats.dailyCalories - neededCalories);
       
       return (
-        <div className="progress-bar-container">
+        <div className="progress-bar-container split">
           <div 
-            className="progress-bar needed" 
-            style={{ 
-              width: '100%',
-              backgroundColor: '#4CAF50'
-            }}
+            className="progress-bar-wrapper"
+            style={{ width: '100%' }}
           >
-            <span className="progress-text">
-              {neededCalories}
-            </span>
+            <div 
+              className="progress-bar needed" 
+              style={{ 
+                width: '100%',
+                backgroundColor: '#4CAF50'
+              }}
+            >
+              <span className="progress-text">
+                {neededCalories}
+              </span>
+            </div>
           </div>
           <div 
-            className="progress-bar exceeded" 
-            style={{ 
-              width: `${calorieProgress - 100}%`,
-              backgroundColor: '#ff4d4d'
-            }}
+            className="progress-bar-wrapper"
+            style={{ width: `${calorieProgress - 100}%` }}
           >
-            <span className="progress-text">
-              +{exceededCalories}
-            </span>
+            <div 
+              className="progress-bar exceeded" 
+              style={{ 
+                width: '100%',
+                backgroundColor: '#ff4444'
+              }}
+            >
+              <span className="progress-text">
+                +{exceededCalories}
+              </span>
+            </div>
           </div>
         </div>
       );
@@ -237,23 +288,70 @@ function Dashboard() {
 
       {/* Calorie Progress Section */}
       <div className="stats-card calorie-card">
-        <h2>Calories</h2>
-        <div className="calorie-section">
-          <div className="progress-percentage">
-            {Math.round(calorieProgress)}%
-          </div>
-          <div className="calorie-progress">
-            {renderProgressBar()}
-          </div>
+        <h2>Daily Calories</h2>
+        <div className="calorie-progress">
+          {renderProgressBar()}
         </div>
         <div className="calorie-numbers">
-          <span>{Math.round(userStats.dailyCalories)} kcal</span>
-          <span>of</span>
-          <span>{userStats.neededCalories} kcal</span>
+          <span>{userStats.dailyCalories} / {userStats.neededCalories} kcal</span>
+        </div>
+
+        {/* Macro Progress Bars */}
+        <div className="macro-progress-section">
+          <div className="macro-item">
+            <h3>Protein</h3>
+            <div className="macro-progress">
+              <div 
+                className="progress-bar"
+                style={{ 
+                  width: `${calculateProgress(macros.protein, macroTargets.protein)}%`,
+                  backgroundColor: macros.protein > macroTargets.protein ? '#ff4444' : '#4CAF50'
+                }}
+              ></div>
+            </div>
+            <div className="macro-numbers">
+              <span>{Math.round(macros.protein)} / {Math.round(macroTargets.protein)}g</span>
+              <span>{Math.round((macros.protein / macroTargets.protein) * 100)}%</span>
+            </div>
+          </div>
+
+          <div className="macro-item">
+            <h3>Carbs</h3>
+            <div className="macro-progress">
+              <div 
+                className="progress-bar"
+                style={{ 
+                  width: `${calculateProgress(macros.carbs, macroTargets.carbs)}%`,
+                  backgroundColor: macros.carbs > macroTargets.carbs ? '#ff4444' : '#4CAF50'
+                }}
+              ></div>
+            </div>
+            <div className="macro-numbers">
+              <span>{Math.round(macros.carbs)} / {Math.round(macroTargets.carbs)}g</span>
+              <span>{Math.round((macros.carbs / macroTargets.carbs) * 100)}%</span>
+            </div>
+          </div>
+
+          <div className="macro-item">
+            <h3>Fat</h3>
+            <div className="macro-progress">
+              <div 
+                className="progress-bar"
+                style={{ 
+                  width: `${calculateProgress(macros.fat, macroTargets.fat)}%`,
+                  backgroundColor: macros.fat > macroTargets.fat ? '#ff4444' : '#4CAF50'
+                }}
+              ></div>
+            </div>
+            <div className="macro-numbers">
+              <span>{Math.round(macros.fat)} / {Math.round(macroTargets.fat)}g</span>
+              <span>{Math.round((macros.fat / macroTargets.fat) * 100)}%</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Today's Food Entries - Update the title */}
+      {/* Today's Food Entries */}
       <div className="stats-card food-entries-card">
         <h2>Foods for {selectedDate.toDateString()}</h2>
         {isFoodEntriesLoading ? (
@@ -264,8 +362,11 @@ function Dashboard() {
               <div key={entry.ID} className="food-entry-item">
                 <div className="food-entry-name">{entry.food?.name || 'Unknown Food'}</div>
                 <div className="food-entry-details">
-                  <span>{entry.quantity} × {entry.serving_desc}</span>
+                  <span>{entry.quantity} x {entry.serving_desc}</span>
                   <span>{Math.round(entry.calories)} kcal</span>
+                  <span>Protein: {((Number(entry.food.protein) * entry.calories) / (entry.food.calories)).toFixed(1)}g</span>
+                  <span>Carbs: {((Number(entry.food.carbohydrates) * entry.calories) / (entry.food.calories)).toFixed(1)}g</span>
+                  <span>Fat: {((Number(entry.food.fat) * entry.calories) / (entry.food.calories)).toFixed(1)}g</span>
                   <button 
                     className="delete-entry-btn"
                     onClick={() => handleDeleteFoodEntry(entry.ID)}
@@ -291,7 +392,7 @@ function Dashboard() {
               <p>{Math.round(weeklyStats.totalCalories)} kcal</p>
             </div>
             <div className="weekly-stat-item">
-              <h3>Weekly Goal Achievement</h3>
+              <h3>Weekly Percentage of Eaten Foods</h3>
               <p>{Math.round(weeklyStats.averagePercentage)}%</p>
             </div>
           </div>
@@ -383,6 +484,10 @@ function Dashboard() {
           height: 100%;
         }
 
+        .progress-bar-container.split {
+          flex-direction: row;
+        }
+
         .progress-bar {
           height: 100%;
           transition: width 0.3s ease-in-out;
@@ -398,6 +503,13 @@ function Dashboard() {
 
         .progress-bar.exceeded {
           border-radius: 0 10px 10px 0;
+        }
+
+        .progress-bar-wrapper {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100%;
         }
 
         .progress-text {
@@ -562,6 +674,51 @@ function Dashboard() {
           font-size: 1.5em;
           font-weight: bold;
           color: #4CAF50;
+        }
+
+        .macro-progress-section {
+          margin-top: 20px;
+        }
+
+        .macro-item {
+          margin-bottom: 20px;
+        }
+
+        .macro-progress {
+          position: relative;
+          width: 100%;
+          height: 20px;
+          background-color: #f0f0f0;
+          border-radius: 10px;
+          overflow: hidden;
+        }
+
+        .macro-progress .progress-bar {
+          height: 100%;
+          transition: width 0.3s ease-in-out;
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .macro-numbers {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 8px;
+          font-size: 0.9em;
+          color: #666;
+        }
+
+        .macro-numbers span:first-child {
+          color: #333;
+          font-weight: 500;
+        }
+
+        .macro-numbers span:last-child {
+          color: #333;
+          font-weight: 500;
         }
       `}</style>
     </div>

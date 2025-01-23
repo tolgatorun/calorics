@@ -351,6 +351,9 @@ func createFoodEntry(c *gin.Context) {
 		return
 	}
 
+	// Store the serving grams
+	foodEntry.ServingGrams = serving.Grams
+
 	// Calculate calories based on serving size and quantity
 	// (calories per 100g * serving grams * quantity) / 100
 	foodEntry.Calories = float64(food.Calories) * serving.Grams * foodEntry.Quantity / 100.0
@@ -558,6 +561,12 @@ func applyFoodSet(c *gin.Context) {
 
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
+	} else {
+		// Validate date format
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Use YYYY-MM-DD"})
+			return
+		}
 	}
 
 	// Load the food set with full food data
@@ -571,13 +580,25 @@ func applyFoodSet(c *gin.Context) {
 	// Create new entries for the current date
 	var newEntries []models.FoodEntry
 	for _, entry := range foodSet.Entries {
+		// Find the serving size
+		var serving models.FoodServing
+		if err := config.DB.Where("food_id = ? AND description = ?", entry.FoodID, entry.ServingDesc).First(&serving).Error; err != nil {
+			log.Printf("Error loading serving data: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid serving size"})
+			return
+		}
+
+		// Calculate calories based on serving size and quantity
+		calories := float64(entry.Food.Calories) * serving.Grams * entry.Quantity / 100.0
+
 		newEntry := models.FoodEntry{
-			UserID:      userID,
+			UserID:       userID,
 			FoodID:      entry.FoodID,
-			ServingDesc: entry.ServingDesc,
-			Quantity:    entry.Quantity,
+			ServingDesc:  entry.ServingDesc,
+			ServingGrams: serving.Grams,
+			Quantity:     entry.Quantity,
 			Date:        date,
-			Calories:    entry.Calories,
+			Calories:    calories,
 			Food:        entry.Food,
 		}
 		newEntries = append(newEntries, newEntry)

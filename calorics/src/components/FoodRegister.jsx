@@ -157,17 +157,19 @@ function FoodRegister() {
     const newEntry = {
       food_id: parseInt(foodEntry.foodId),
       serving_desc: foodEntry.servingDesc,
-      quantity: parseFloat(foodEntry.quantity)
+      quantity: parseFloat(foodEntry.quantity),
+      date: foodEntry.date
     };
 
     setFoodSetEntries([...foodSetEntries, newEntry]);
     
-    // Clear the form
+    // Clear the form but keep the date
+    const currentDate = foodEntry.date;
     setFoodEntry({
       foodId: '',
       servingDesc: '',
       quantity: '',
-      date: new Date().toISOString().split('T')[0]
+      date: currentDate
     });
     setSelectedFood(null);
     setSearchTerm('');
@@ -196,10 +198,17 @@ function FoodRegister() {
 
       if (response.ok) {
         setMessage('Food set created successfully!');
-        // Clear the form
+        // Clear the form but keep the date
+        const currentDate = foodEntry.date;
         setFoodSetName('');
         setFoodSetDescription('');
         setFoodSetEntries([]);
+        setFoodEntry({
+          foodId: '',
+          servingDesc: '',
+          quantity: '',
+          date: currentDate
+        });
         setFoodSetMode(false);
       } else {
         const error = await response.json();
@@ -231,7 +240,17 @@ function FoodRegister() {
 
       if (response.ok) {
         setMessage('Food set applied successfully!');
-        setShowFoodSets(false);
+        // Keep the current date
+        const currentDate = foodEntry.date;
+        setFoodEntry({
+          foodId: '',
+          servingDesc: '',
+          quantity: '',
+          date: currentDate
+        });
+        setSelectedFood(null);
+        setSearchTerm('');
+        navigate('/dashboard');
       } else {
         const error = await response.json();
         setMessage('Failed to apply food set: ' + error.error);
